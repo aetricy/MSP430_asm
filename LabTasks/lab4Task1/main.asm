@@ -23,42 +23,51 @@ StopWDT     mov.w   #WDTPW|WDTHOLD,&WDTCTL  ; Stop watchdog timer
 ;-------------------------------------------------------------------------------
 ; Main loop here
 ;-------------------------------------------------------------------------------
+.data
 
-			clr.b   &PM5CTL0                 ; Unlock GPIOs (for MSP430FRxx series)
+NUMBER:
+	    .word 0xa0d1   ; Lowest 16-bit (Least Significant Word - LSW)
+	    .word 0x6549   ; 2nd 16-bit
+	    .word 0x1cf0   ; 3rd 16-bit
+	    .word 0x2be5   ; Highest 16-bit (Most Significant Word - MSW)
 
-            ; Configure Clock System
-            mov.w #CSKEY , &CSCTL0           ; Unlock clock registers
-            mov.w #DCOFSEL_0, &CSCTL1        ; Set DCO to lowest frequency
-            mov.w #SELS__DCOCLK ,&CSCTL2     ; Select DCO as SMCLK source
-            mov.w #DIVS__8 , &CSCTL3         ; Divide SMCLK by 8
-
-            ; Configure Timer_A
-            mov.w #TASSEL__SMCLK | ID__1 | MC__UP | TACLR, &TA0CTL  ; Select SMCLK, divide by 2, up mode, clear timer
-            mov.w #CCIE , &TA0CCTL0         ; Enable Timer_A interrupt for CCR0
-            mov.w #62499 ,&TA0CCR0          ; Set CCR0 value (for timing interval)
+.text
 
 
-			bis   #BIT0 , P1DIR             ; Set P1.0 as output (LED)
-			nop
-            bis   #GIE, SR                  ; Enable global interrupts
-			nop
+_start:
+		    mov.w   &NUMBER, R4     ; Load NUMBER[0] (LSW) into R4
+		    mov.w   &NUMBER+2, R5   ; Load NUMBER[1] into R5
+		    mov.w   &NUMBER+4, R6   ; Load NUMBER[2] into R6
+		    mov.w   &NUMBER+6, R7   ; Load NUMBER[3] (MSW) into R7
 
-			; Infinite loop (CPU remains here, ISR handles the work)
-            jmp $
-			nop
+		    ; -----------------------
+		    ; 64-bit Left Shift (Rotate Left through Carry)
+		    ; -----------------------
 
+		    rlc.w   R4          ; Rotate left R4 (lowest 16-bit), MSB goes to Carry
+		    rlc.w   R5          ; Rotate left R5, previous Carry affects LSB
+		    rlc.w   R6          ; Rotate left R6, previous Carry affects LSB
+		    rlc.w   R7          ; Rotate left R7 (highest 16-bit), previous Carry affects LSB
 
-TIMERA0_VECTOR:
-		xor.b  #BIT0 , &P1OUT		; Toggle P1.0 (LED)
-		bic    #TAIFG, &TA0CTL		; Clear interrupt flag
-		reti						; Return from interrupt
+		    ; -----------------------
+		    ; Store the updated value back into memory
+		    ; -----------------------
+		    mov.w   R4, &NUMBER
+		    mov.w   R5, &NUMBER+2
+		    mov.w   R6, &NUMBER+4
+		    mov.w   R7, &NUMBER+6
+
+		    ; Infinite loop (to prevent program termination)
+
+			jmp $
+
+                                            
 
 ;-------------------------------------------------------------------------------
 ; Stack Pointer definition
 ;-------------------------------------------------------------------------------
             .global __STACK_END
             .sect   .stack
-
             
 ;-------------------------------------------------------------------------------
 ; Interrupt Vectors
@@ -66,5 +75,3 @@ TIMERA0_VECTOR:
             .sect   ".reset"                ; MSP430 RESET Vector
             .short  RESET
             
-            .sect  TIMER0_A0_VECTOR			; Timer_A0 Interrupt Vector	 (".int45")
-            .short TIMERA0_VECTOR
